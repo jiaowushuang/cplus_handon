@@ -1,0 +1,241 @@
+标准库和第三方库。熟知的第三方库有Numpy,Scipy,Django,Flask,Requests,etc.
+
+标准库：
+一些操作系统层的库包括os,sys,shutil,glob,etc.
+-----------------------------------------------------------collections----------------------------------------------------------------
+collections:数据结构集锦
+1.collections.OrderedDict 有序字典（按照item插入字典的顺序），不同于sorted顺序（sorted支持的数据类型有：list,dict,set）
+eg:
+problem:
+dict(zip(ascii_lowercase,range(4))) -> {'a':0,'b':1,'d':3,'c':2} -> hash (item order,value order;but consult not order)
+slove:
+form collections import OrderedDict
+OrderedDict(zip(ascii_lowercase,range(4)))
+note:
+not work at OrderedDict(a=0,b=1,c=2,d=3).
+
+2.collections.defaultdict 默认字典（初始化字典中的item，根据类型或不带参数的返回值函数）由于dict不允许访问不存在的item，故需要初始化
+eg:
+comdict={}
+keys=['a','b','c','d']
+
+slove1:
+for k in keys:
+	if not k in comdict:
+		comdict[k]=[]
+	else:
+		comdict[k].append(...)
+slove2:
+for k in keys:
+	comdict.setdefault(k,[])
+	comdict[k].append(...)
+	or:
+	comdict.setdefault(k,[]).append(...)
+slove3:
+defaudict=collections.defaultdict(list) list as datatype.argu also as dict,tuple
+note:
+这种形式的默认值只有在通过dict.__getitem__(key)访问的时候才有效，即for k in keys: value=defaudict[k].append(...)
+or:function
+defaudict=collections.defaultdict(lambda:0)
+defaudict=collections.defaultdict(zero)
+def zero():
+	return 0
+
+3.collections.namedtuple 命名元组（一种替代类的优雅方案）。根据名称来访问命名元组内的属性，这可以增强程序的拓展性
+from collections import namedtuple
+classA=namedtuple('classA',['count','enabled','color']) #对象为classA，类型为classA，属性为count,enabled,color
+classAinst=classA(count=1,enabled=true,color="red")     #实例为classAinst
+or:
+classAinst=classA._make([1,true,"red"])
+
+#获取属性 classAinst.count enabled color
+#修改属性 classAinst = classAinst._replace(count=2)
+#转换为字典 classAinst = classAinst._asdict()
+
+collections 还有一些其他的tricks值得深究，包括Counter(统计事件)，deque(类似于列表，可以高效率地在双端插入和移除元素)，etc.
+-------------------------------------------------------------with--------------------------------------------------------
+eg:
+1 with open("/tmp/foo.txt",'r') as file:
+2     data = file.read()
+
+首先
+使用with后不管with中的代码出现什么错误，都会对当前对象进行清理工作。例如对于file对象而言，无论with中出现任何错误，都会执行file.close()方法。
+with用法：
+    with context_expression [as target(s)]:
+        with-body
+例子：
+    with open(r'somefileName') as somefile:
+        for line in somefile:
+            print line
+            # ...more code
+ 
+with后面为一个表达式，表达式返回的是一个上下文管理器对象，使用as可以将这个结果赋值给某个变量方便之后操作。如果有多个项，我们可以这么写：
+	with open("x.txt") as f1, open('xxx.txt') as f2:
+    		do something with f1,f2
+nested 函数：
+        with nested(A(), B(), C()) as (X, Y, Z):
+         	# with-body code here
+等同于：
+    with A() as X:
+        with B() as Y:
+            with C() as Z:
+                 # with-body code here
+
+其次
+with只有特定场合下才能使用。这个特定场合指的是那些支持上下文管理器的对象。
+上下文管理器：就是在对象内实现了两个方法：__enter__() 和__exit__()
+__enter__()方法会在with的代码块执行之前执行，__exit__（）会在代码块执行结束后执行。__exit__()方法内会自带当前对象的清理方法。这些对象有：
+1 file
+2 decimal.Context
+3 thread.LockType
+4 threading.Lock
+5 threading.RLock
+6 threading.Condition
+7 threading.Semaphore
+8 threading.BoundedSemaphore
+
+上下文管理器可以自定义，可以重写__enter__(self)和__exit__(self, type, value, trace)方法，也可以使用 form contextlib import contextmanager(装饰器) 创建上下文管理器。
+
+实际上，在with后面的代码块抛出任何异常时，__exit__(self, type, value, trace) 方法都会执行。异常抛出时，与之关联的type，value和stack trace传给 __exit__() 方法，因此抛出的ZeroDivisionError异常可以在__exit__()中处理。除此之外，清理资源、关闭文件、异常的监控和处理等等操作都可以放在 __exit__ 方法中。
+注意后几个参数，要跳过某个异常，只需要返回__exit__()==True即可。下面的样例代码跳过了所有的TypeError，而让其他异常正常抛出：
+1 def __exit__(self, type, value, traceback):
+2     return isinstance(value, TypeError)
+如果我们不在这个函数中处理异常，可以：
+1 try:
+2     with open( "a.txt" ) as f :
+3         do something
+4 except xxxError:
+5     do something about exception
+
+最后
+with语句类似以下功能：
+　　try: open("/tmp/foo.txt",'r') , data = file.read() 
+　　except: __exit__(self, type, value, trace) 
+　　finally: file.close()
+with-as表达式极大的简化了每次写finally的工作，这对保持代码的优雅性是有极大帮助的。
+------------------------------------------------------------------装饰器----------------------------------------------------------------
+装饰器的主要动机源自python面向对象编程，装饰器仅是当声明一个函数或者方法的时候，才会应用的额外调用。 
+装饰器以@开头，接着是装饰器的名字和可选的参数，然后是被修饰的函数和可选参数。
+1 class MyClass(obj): #可选
+2     @staticmethod   #利用staticmethod内建函数将这个函数转换为静态方法，再利用装饰器会很简洁。
+3     def staticFoo():
+4     ...
+
+eg1:无参数的装饰器
+	@g
+	@f
+	def foo():
+		...
+	等同于：foo=g(f(foo))
+eg2:有参数的装饰器
+	@decomaker(deco_args)
+	def foo():
+    		pass 
+	等同于：foo=decomaker(deco_args)(foo) 双参数
+eg3:多个装饰器
+	@deco1(deco_args)
+	@deco2
+	def func():
+		pass
+	等价于：func=deco1(deco_args) (deco2(func))
+可以用装饰器来：
+1 引入日志
+2 增加计时逻辑来检测性能
+3 给函数加入事物能力
+-------------------------------------------------------------生成器----------------------------------------------------------------
+首先
+可迭代对象。eg:mylist是一个可迭代的对象；当使用列表生成式来创建列表时，就建立了一个可迭代对象:
+	mylist = [x*x for x in range(3)]
+		for i in mylist :
+			print(i)
+这里：所有值都存储在内存中，所以不适合大量数据
+其次
+生成器。可迭代，只执行一次，实时生成数据，部分存储在内存中
+	mygenerator = (x*x for x in range(3))
+		for i in mygenerator :
+   			print(i)
+注意：之后不能再使用for i in mygenerator
+最后
+yield关键字。yield是一个类似于 return 的关键字，只是返回的是生成器，而不是返回值（退出）
+eg:
+	def createGenerator() :
+		mylist = range(3)
+		for i in mylist :
+			yield i*i
+当你调用这个函数的时候，函数内部的代码并不立马执行，这个函数只是返回一个生成器对象。而当你使用for进行迭代的时候，函数中的代码才会执行
+>>> mygenerator = createGenerator() # create a generator
+>>> print(mygenerator) # mygenerator is an object!
+<generator object createGenerator at 0xb7555c34>
+>>> for i in mygenerator:
+...     print(i)
+0
+1
+4
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+第一次迭代中你的函数会执行，从开始到达 yield 关键字，然后返回 yield 后的值作为第一次迭代的返回值. 然后，每次执行这个函数都会继续执行你在函数内部定义的那个循环的下一次，再返回那个值，直到没有可以返回的。
+
+控制生成器的穷尽
+>>> class Bank(): # let's create a bank, building ATMs
+...    crisis = False
+...    def create_atm(self) :
+...        while not self.crisis :
+...            yield "$100"
+>>> hsbc = Bank() # when everything's ok the ATM gives you as much as you want
+>>> corner_street_atm = hsbc.create_atm()
+>>> print(corner_street_atm.next())
+$100
+>>> print(corner_street_atm.next())
+$100
+>>> print([corner_street_atm.next() for cash in range(5)])
+['$100', '$100', '$100', '$100', '$100']
+
+>>> hsbc.crisis = True # crisis is coming, no more money!
+>>> print(corner_street_atm.next())
+<type 'exceptions.StopIteration'>
+>>> wall_street_atm = hsbc.create_atm() # it's even true for new ATMs
+>>> print(wall_street_atm.next())
+<type 'exceptions.StopIteration'>
+
+>>> hsbc.crisis = False # trouble is, even post-crisis the ATM remains empty
+>>> print(corner_street_atm.next())
+<type 'exceptions.StopIteration'>
+>>> brand_new_atm = hsbc.create_atm() # build a new one to get back in business
+>>> for cash in brand_new_atm :
+...    print cash
+$100
+$100
+$100
+$100
+$100
+$100
+$100
+$100
+$100
+...
+-------------------------------------------------------------contextlib------------------------------------------------------------
+contextlib:上下文管理库，with语句的增强，管理代码段的工作
+from contextlib import contextmanager
+@contextmanager
+
+--------------------------------------------------------concurrent.futures---------------------------------------------------------
+
+------------------------------------------------------------logging----------------------------------------------------------------
+
+-------------------------------------------------------------sched-----------------------------------------------------------------
+
+
+
+	
+

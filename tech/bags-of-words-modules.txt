@@ -1,0 +1,210 @@
+所有源代码使用DBoW2命名空间，以及类模板<class TDescriptor, class F>，其中TDescriptor表示描述子，F表示描述子的类别。
+
+OPENCV：Mat~TDescriptor
+模板通用类型：TDescriptor，F（eg:Brief,ORB,SURF）
+模板类：TemplatedVocabulary
+
+对于词汇表类而言，
+pubilc：它包含构造函数（初始化空表，从已有的词汇表文件加载），copy构造函数，析构函数以及运算符=重载，get/set，size/empty函数；save/load;也包含create（将训练特征集转换为词汇表），transform（将特征集转换为词袋向量或特征向量或是将单个特征转换为单词），score（计算两个词袋向量的得分、相似度），stopWords（设置权重阈值，低于该阈值的单词禁止放入词汇表中）；
+
+protected：
+以算法流程为序，将涉及的数据结构陈述：
+（1）采用人工标注的特征（ORB描述子）将图像提取为特征，并聚类为簇；
+描述子指针：typedef const TDescriptor *pDescriptor（Pointer to descriptor）
+描述子集：std::vector<pDescriptor> 
+
+特征：TDescriptor
+特征集：std::vector<TDescriptor>
+
+将多幅图片转换为训练特征集：std::vector<std::vector<TDescriptor> >
+
+clusters（簇集）：std::vector<TDescriptor>
+groups（组集）：std::vector<std::vector<unsigned int> > 
+
+（2）将簇以词汇树进行存储，词汇树的选取多种，这里采用k-d树
+单词集：std::vector<WordId>
+节点集：std::vector<NodeId>
+单词其实就是节点
+（3）从词汇树的叶子节点提取单词以及相应的特征信息
+词袋向量：std::map<WordId, WordValue>
+特征向量：std::map<NodeId, std::vector<unsigned int> >
+
+（4）树节点以结构体的格式保存：
+struct Node 
+{
+    NodeId id;
+    WordValue weight;              /// Weight if the node is a word
+    std::vector<NodeId> children;
+    NodeId parent;                 /// Parent node (undefined in case of root)
+    TDescriptor descriptor;        /// Node descriptor
+    WordId word_id;                /// Word id if the node is a word
+
+    ///constructor
+    Node(): id(0), weight(0), parent(0), word_id(0){}
+    Node(NodeId _id): id(_id), weight(0), parent(0), word_id(0){}
+
+    inline bool isLeaf() const { return children.empty(); }
+  };
+
+（5）词汇树以YAML格式保存:
+vocabulary 
+{
+	k:分支因子
+	L:树的深度（层数）
+	scoringType:例如L1_NORM，L2_NORM，以及其他图像间相似度的度量标准（注意：簇和簇间相似度的度量采用海明距离表示）CHI_SQUARE，KL，BHATTACHARYYA，DOT_PRODUCT
+	weightingType:例如TF，IDF，以及TF-IDF等其他文档频率
+	nodes 
+	[
+		{
+		nodeId:
+		parentId:
+		weight:
+ 		descriptor: 
+		}
+	]
+	words
+	[
+		{
+		wordId:
+		nodeId:
+		}
+	]
+}
+注意：词汇树的根节点（索引0）没有包含在节点集中。
+
+（6）其他
+分支因子：  int m_k;  
+深度、层数：int m_L;
+权重类型：  WeightingType m_weighting;
+得分类型：  ScoringType m_scoring;
+得分对象：  GeneralScoring* m_scoring_object;
+节点集：    std::vector<Node> m_nodes;
+单词集：    std::vector<Node*> m_words; 
+};
+
+以算法的流程为序，将涉及的方法陈述：
+（离线）：由训练特征集构造词汇表
+（1）createScoringObject：根据m_scoring创建一个得分对象的实例
+（2）getFeatures：将训练特征集转换为特征集，即将多幅图片提取出一幅图片
+
+用在（7）（3）transform：将单个特征转换为单词，并返回某个特征相关联的单词ID
+
+（4）HKmeansStep：在词汇树的祖先节点下，对其关联的描述子集执行kmeans，将得到的簇创建词汇树的下一层；迭代这步，直至创建到叶子节点
+用在（4）（5）initiateClusters：将给定的描述子集，随机初始化K簇
+（6）createWords：一旦词汇树构建，便创建词汇表中的单词
+（在线）
+（7）setNodeWeights：对给定的特征集（多幅图片），设置词汇树中节点的权重
+
+关于ID：在Vector容器中，ID仅仅就是一些数字，而且其选取是简单的。一般是在0～size()-1选择。除了map等关联容器之外，容器中的索引基本上就是数字。
+
+数据库以YAML格式保存：
+
+vocabulary { ... see TemplatedVocabulary::save }
+database 
+	{
+	nEntries: 
+	usingDI: 
+	diLevels: 
+	invertedIndex
+	[
+		[
+			{ 
+			imageId: 
+			weight: 
+			}
+		]
+	]
+	directIndex
+	[
+		[
+			{
+			nodeId:
+			features: [ ]
+			}
+		]
+	]
+
+invertedIndex[i] is for the i-th word
+directIndex[i] is for the i-th entry
+
+directIndex may be empty if not using direct index
+
+imageId's and nodeId's must be stored in ascending order(according to the construction of the indexes)
+
+总结：
+1.构造词汇树（离线）
+
+（a）从每个数据库图像中提取仿射协变区域
+（b）计算描述子，可选择性地对它们进行白化，使得计算欧氏距离有意义
+（c）用k-means算法或是层次聚类算法或是随机的k-d树，把这些描述子聚类成一些视觉词
+（d）确定哪些词是过于普通的，把它们放入停止表中
+
+2.构造数据库（离线）
+
+（a）计算每个图像中的视觉词的词频，每个词的文档频率和每个文档的归一化的tf-idf向量
+（b）计算从视觉词到图像的倒排索引（带有词的计数）
+
+3.图像检索（在线）
+
+（a）对每个查询的图像或是区域，提取区域、描述子和视觉词，并计算tf-idf向量
+（b）通过详尽的比较稀疏tf-idf向量或是使用倒排索引只检查图像的一个子集，检索最相似的图像候选
+（c）用空间一致性或是仿射变换（或更简单的）模型，可选择性地再排序或是验证所有的候选匹配
+（d）可选择性地将排序很靠前的匹配再次作为新的查询来扩展答案集
+
+1. BowVector.h/pp
+
+//单词ID，单词值（权重），词汇树的节点ID，正规化的L范数，权重类型，得分类型
+//BowVector，作为表示图像的单词向量， 继承于map<单词ID，单词值>
+//对于已存在的单词ID增加其单词值，或是创建<单词ID，单词值>
+//创建<>前，需检查单词向量是否存在
+//对单词值进行L-正规化
+//输出单词向量的内容（<<运算符重载）
+//将单词向量另存为matlab的vector向量
+
+2. FeatureVector.h/pp
+
+//FeatureVector，其节点存储本地的特征集，使用索引，可称之为特征向量
+//继承于map<节点ID，容器vector>
+//对于已存在的节点ID增加特征集-索引（vector容器），或是创建<节点ID，初始特征集-索引>
+//输出特征向量
+
+3. ScoringObject.h/pp
+
+//GeneralScoring，作为计算两个单词向量间得分的基类
+//得分，向量必须经过正规化
+//在算分前，检查向量是否正规化
+//ε记录，如果改变单词值的类型，也需改变ε值（用于KL方法）
+（宏：对于L1，L2范数，在必须正规化后，调用多种得分函数来算分）
+
+4. QueryResults.h
+
+5. Database.h/pp
+
+
+
+在计算机视觉领域，图像通常以特征点及其描述子来表达。如果把描述子看做单词，那么就能构建出相应的词袋模型。
+利用DBoW3库，图像可以方便地转化为一个低维的向量表示。比较两个图像的相似度也就转化为比较两个向量的相似度。它本质上是一个信息压缩的过程。
+
+
+词袋模型利用视觉词典（vocabulary）来把图像转化为向量。视觉词典有多种组织方式，对应于不同的搜索复杂度。
+DBoW3库采用树状结构存储词袋，搜索复杂度一般在log(N)，有点像决策树。
+
+首先，需要训练离线词典，甚至是离散数据库。你可以提供某场景的典型图像，通过OPENCV构造描述子。将其通过k-means聚类，进而生成单词和词典（词典是以词汇树的形式存储）。该词汇树中叶子节点属于单词，将单词通过nodeID和权重值进行存储。在数据库中，索引时使用直接索引到node，使用倒排索引到单词。
+
+其次，需要在线进行使用。将相机在线收集到的图像依旧是转换为描述子，接着将其聚类为单词。并与离线词汇树中的单词进行比较，找出对应的单词，算出TF-IDF，并将其作为叶子节点的权重。得到单词向量<单词ID，单词值（权重）>。
+
+最后，将两张图片的词袋向量做相似度比较。进而判断是否两张图片是一致的。
+
+
+视觉词典可以通过离线训练大量数据得到。训练中只计算和保存单词的IDF值，即单词在众多图像中的区分度。TF则是从实际图像中计算得到各个单词的频率。单词的TF越高，说明单词在这幅图像中出现的越多；单词的IDF越高，说明单词本身具有高区分度。二者结合起来，即可得到这幅图像的BoW描述。
+
+除了叶子节点外，整个词汇树还是有一些中间节点，这些节点不占存储空间，只是概念性的。它们是特征描述子在聚类时的泛类，而不是具体类。即还有分割的空间。
+
+假设训练集有10万幅图像，每幅图像提取出200个特征，总共有两千万个特征。如果我们取K=10，L=6，那么词典总共有十万个节点，压缩了200倍。K和L需要根据场景的丰富程度和特征的区分度选取。
+
+在DBoW2库中，如果特征描述是ORB特征，那就训练得到ORB词典；如果是SIFT特征，那就训练得到SIFT词典。DBoW2库利用一个大的图像数据库，离线训练好了ORB库和SIFT库，供大家使用。因此，在使用DBoW2库时，首先需要载入一个离线视觉词典。注意ORB特征和SIFT特征对于meanValue()和distance()的定义有所不同。
+
+2. Database.h/pp
+
+
+

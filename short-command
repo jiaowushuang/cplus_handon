@@ -1,0 +1,163 @@
+(1) APPimage use
+
+$ chmod a+x Subsurface*.AppImage
+$ ./Subsurface*.AppImage
+
+(2) bochs minix use
+
+$ cd /usr/gitp/minix/kernels/bochsminix
+$ sudo chmod 777 minix.img 
+$ bochs 进入调试界面
+$ c     进入终端界面
+
+(3) slam set use
+
+词汇表：
+
+capure 捕获
+still 静止
+transform 变换 stretch 伸展 shrink 收缩 warp 弯曲 remap重映射 repair 修复 reconstruct 重构
+stereo 立体 stitch 拼接
+
+
+安装库：
+
+1. Pangolin可视化和用户接口
+2. opencv 开源视觉算法库500+
+3. eigen3 线性代数库
+4. orb-slam2 
+5. ceres 非线性优化库
+6. g2o 图优化库
+7. pcl
+8. DBOW3
+
+使用库：
+
+1.eigne3
+
+Eigen与其他库不同，它是一个由头文件搭建起来的库，Eigen头文件的默认安装位置在“/usr/include/eigen3/”中。我们在使用时，只需引入Eigen头文件，不需要链接它的库文件，在CMakeLists.txt里添加Eigen头文件的目录。
+
+#添加头文件
+include_directories("/usr/include/eigen3")
+
+2.Sophus
+
+在CMakeLists.txt中添加Sophus库的头文件和库文件。find_package命令是cmake提供的寻找某个库的头文件和库文件的命令。如果cmake能找到它，就会提供头文件和库文件所在目录的变量。
+
+#为了使用Sophus，需要使用find_package命令
+find_package( Sophus REQUIRED )
+include_directories( ${Sophus_INCLUDE_DIRS})　　　　　　　　#添加头文件目录
+add_executable( useSophus useSophus.cpp)　　　　　　　　　　#添加可执行文件
+target_link_libraries( useSophus ${Sophus_LIBRARIES} )　　#添加库文件目录
+
+3.opencv
+
+OpenCV库的头文件和库文件默认安装在"/usr/local"目录下，在CMakeLists.txt中添加OpenCV库的头文件和库问价如下所示：
+find_package( OpenCV REQUIRED )
+include_directories( ${OpenCV_INCLUDE_DIRS})　　　　　　　　   #添加头文件目录 
+add_executable( imageBasics imageBasics.cpp)　　　　　　　　　　#添加可执行文件
+target_link_libraries( imageBasics ${OpenCV_LIBS} )　　      #添加库文件目录
+注：在安装opencv 3.2时，由于ROS系统自带opencv2，因此需要修改安装目录，参考博客：ubuntu下opencv3.2.0和opencv2.4.8共存
+
+4.pcl点云库（待安）失败
+PCL库是点云库（Point Cloud Library）[4]。PCL库的安装比较容易，输入以下命令即可（也可以使用源代码安装）：
+
+sudo add-apt-repository ppa:v-launchpad-jochen-sprickerhof-de/pcl
+sudo apt-get update
+sudo apt-get install libpcl-all
+
+安装完成后，PCL库的头文件将安装在"/usr/include/pcl-1.7/"中。库文件位于"/usr/lib/"中。在CMakeLists中添加头文件和库文件如下：
+
+find_package( PCL REQUIRED COMPOMENT common io )
+include_directories( ${PCL_INCLUDE_DIRS})　　　　　　　　   #添加头文件目录 
+add_executable( joinMap joinMap.cpp)　　　　　　　　　　#添加可执行文件
+target_link_libraries( joinMap ${PCL_LIBRARIES} )　　      #添加库文件目录
+
+生成的点云文件以pcd的格式存储，用PCL提供的可视化程序打开这个文件：
+pcl_viewer map.pcd
+
+5.ceres
+
+Ceres库的头文件安装在"/usr/local/include/ceres/"目录下，库文件安装在"/usr/local/lib/"目录下。在CMakeList.txt中添加头文件和库文件路径的命令。
+
+# 添加cmake模块以使用ceres库
+list( APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules )
+find_package( Ceres REQUIRED )
+include_directories( ${CERES_INCLUDE_DIRS})　　　　　　　　   #添加头文件目录 
+add_executable( curve_fitting main.cpp )　　　　　　　　　　#添加可执行文件
+target_link_libraries( curve_fitting ${CERES_LIBRARIES} )　　      #添加库文件目录
+
+
+6.通用+g2o
+
+#寻找OpenCV库
+find_package( OpenCV REQUIRED )
+include_directories(${OpenCV_INCLUDE_DIRS} )
+#链接OpenCV库
+target_link_libraries(项目名称 ${OpenCV_LIBS} )
+
+#其他的库与OpenCV类似。比较特别的是g2o。把g2o引入自己的cmake工程：
+# 添加g2o的依赖，因为g2o不是常用库，要添加它的findg2o.cmake文件
+LIST( APPENDCMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules )
+SET( G2O_ROOT/usr/local/include/g2o )
+FIND_PACKAGE(G2O )
+
+# CSparse
+FIND_PACKAGE(CSparse )
+INCLUDE_DIRECTORIES(${G2O_INCLUDE_DIR} ${CSPARSE_INCLUDE_DIR} )
+
+同时，在代码根目录下新建cmake_modules文件夹，把g2o代码目录下的cmake_modules里的东西都拷进来，保证cmake能够顺利找到g2o。
+
+关键点和描述子
+
+1.关键点与跟踪基础
+
+主要讲明图像中的特征点。开始于角点的描述，以及在像素域内的定义。接着了解如何使用光流跟踪角点。角点的跟踪属于关键点理论，故需要知道关键点的特征检测以及在opencv库中描述子的实现。
+
+a.角点是图像的小块，包含丰富的局部信息，并可能在另一幅图像中识别出来。
+b.关键点是角点的扩展，从图像的局部小块中编码信息，以使关键点有高度的可辨别性，以及在原则上是十分不同的。
+c.关键点的信息以相应的描述子汇总，一般要比关键点更低维。描述子所代表的图像块更容易在其他图像中识别出来。
+
+(4) code anal 
+
+$ doxywizard
+
+(5) 强制 exit
+
+super/win+k
+
+(6) 网易云 open
+
+sudo netease-cloud-music
+
+(7) text->pdf
+
+将文本文件转换成PDF格式
+准备工作完成之后，按照下面的两步从文本文件生成一个PDF文件
+
+首先，使用enscript命令行工具将文本文件转换成postscript格式。
+
+$ enscript -p output.ps input.txt
+
+最后将postscript格式文件转换成PDF文件。
+
+$ ps2pdf output.ps output.pdf
+
+(8) 编译opengl prog
+
+$ g++ Bounce.cpp -lgltools -lGLEW -lGL -lglut
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

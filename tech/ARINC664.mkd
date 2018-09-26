@@ -1,0 +1,254 @@
+ES:支持 ARINC 664 通用数据网络的设备  
+ES架构：  
+1. Packet Engine ASIC 芯片  
+2. 驱动软件：Packet Engine ASIC 芯片的接口  
+3. ESBIN 配置工具： Packet Engine ASIC 芯片 和 驱动软件  
+4. 应用软件：host software
+5. 功能实现：应用软件（application）使用host接口 与 驱动软件（代表 Packet Engine ASIC 芯片的物理接口）进行通信，将本地数据通过Packet Engine ASIC 芯片传输到CDN上；之后，Packet Engine ASIC 芯片使用Ethernrt接口将消息进行封装/解封、处理、管理并将其发送/接收至Ethernrt数据总线。  
+
+---
+
+第一部分：系统层V6ES  
+  
+1. 通用数据网络 CDN协议 概览 和 ES 功能（以及：LRU 互联、总线）   
+2. host接口（-> ES Packet Engine ASIC）：与 端口、缓存、芯片接口（驱动软件）相关  
+3. Ethernrt接口（-> 网络协议、总线）：封包、消息处理、消息管理  
+4. ES Modes 工作模式 和 Modes Engine 模式状态机（包括：上电和复位）  
+5. 配置 Packet Engine ASIC 和 驱动软件：板子（物理）/用户配置（ESBIN）的实现过程     
+
+---
+
+第四节：  
+ES实现多种工作模式，并以模式的某种序列（enable/disable）功能。host 管理ES的工作模式；且在执行特定的任务（比如：配置、发送、接收等等）前，有必要给ES赋予合适的模式。  
+  
+ES模式：  
+0. POWER UP:上电  
+1. INIT：ES上电后的准备过程  
+2. CONF：加载 HW/SW 配置数据至ES  
+3. POST：ES上电后检查任意的错误  
+4. TEST：测试鲁棒性以及ES的硬件问题   
+5. OPS：使能ES发送/接收数据  
+6. QUIET：在发送/接收数据不被允许时，对PHY下电  
+模式状态机：  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port38.png"/></a>  
+时序：  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port38_1.png"/></a>  
+
+---
+
+第五节：  
+Packet Engine ASIC是高度可配置的设备；包括：buffer大小、Ethernet帧的处理以及板子特性。  
+故Packet Engine ASIC配置可以分为两种：   
+1. 板子（物理）配置表：参数 ～ 板子（物理）特性  
+2. 用户配置表：参数 ～ 网络特性  
+3. 两种配置均存储在ES的 外部/串行/只读PROM  
+4. 在PROM中，板子（物理）配置表BCT仅有一个，且需要存放在PROM的最后分区中  
+5. 用户配置表UCT定义了软件/硬件的配置。ES可以存放和使用最多15个用户配置表，且每一个都存储在PROM的独立分区中，但仅有一个用户配置是激活的。用户配置表所在的分区以 table index 表示，驱动软件 能够提供 烧写/销毁/激活/执行PROM中用户配置表的方法（使用table index）  
+6. 当一个特定的用户配置表需要销毁时，host software必须提供一个table index至驱动软件，之后驱动软件命令 Packet Engine（using the Packet Engine, General Status & Control, Serial PROM Command and Status (PE.GSC,SPCS)register）销毁PROM分区，至少需要2s   
+7. 当需要烧写新的用户配置表至PROM，驱动软件会提供API函数（ProgramEsConfigTable：需要host software提供配置表的指针作为参数，然后解析配置表的内容作为硬件配置数据）  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port40.png"/></a>  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port40_1.png"/></a>  
+8. 在初始化期间，并且转换为OPS模式之前，host software会加载ES一个正确的用户配置表。PerformEsConfig API函数（参数：配置表指针）会为host software简化这一过程。  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port41.png"/></a>  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port41_1.png"/></a>  
+    
+BCT：PHY信号极性，中断掩码，BIST信息，已安装的buffer大小，equipment part numbers, serial numbers and designation information；<big>Upon release from reset, the board configuration is loaded into the Packet Engine registers for usage.For more information on the BCT fields and usage, see Appendix C.</big> 至于烧写和销毁，The BCT is generally considered a “factorytable” and care should be taken when deciding to erase or program a new BCT. Many serial PROMs provide the capability to protect the last sector from erasure. This strapping is recommended for non factory usage.  
+   
+UCT：the configuration of the transmit and receive ports instantiated as well as the transmit and receive Virtual Links. There are also some End System global parameters such as source addressing and data filtering functionality that are found in the user configuration. <big>For more information on the fields within the user configuration, see Appendix C；User configurations are created through the ESBIN program. For more information on ESBIN, please refer to the ESBIN User’s Manual </big>。  
+  
+
+
+---
+
+第一节：  
+CDN协议：ARINC 664, Part 7（静态配置网络）   
+ES 或是称为节点 在网络中静态配置（类型、寻址、速率（100BaseT/10BaseT）、全双工（always））  
+
+---
+
+第二节：  
+host接口：host software -> CDN（ES COM ports:one TX to many RXs） -> host software  
+
+[1] 当初始化一个发送或接收操作时，host software 提供 ES 之 COM ports 索引。  
+ES 使用 COM ports 索引 来发送或接收（写或读）消息；故 确保 ports 合理之配置。    
+旁注：除了COM ports外，还有 host software -> Packet Engine ASIC 之其他 ports 的功能。  
+
+[2] 消息之滞留（host -> ES Packet Engine ASIC）会使用 buffer（ RAM ）以存储。buffer 之分配 于系统配置时决定，并交于 Packet Engine ASIC 管理。  
+旁注：buffer 种类和功能。  
+
+[3] 驱动软件位于 host software -- Packet Engine ASIC 之间。  
+旁注：消息结构、互联操作。  
+
+---
+
+[1] COM port 特性：  
+1. 发送或接收  
+2. 采样或队列  
+3. AFDX 或 SAP  
+4. 消息长度 <= 8KB  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port1.png"/></a>  
+
+对于发送而言，COM ports 均为 队列ports（即：消息以某种顺序存放在队列之中）。 
+COM ports 可以配置为 AFDX COM 和 SAP ports，二者的区别在于端口寻址。
+每一ports（包括AFDX COM 和 SAP）都与VL（虚拟链路）关联。
+
+AFDX COM 配置更为固定。发送消息时，host port 与 消息的目的UDP/IP地址 关联（静态配置）。在接收时，host spftware 不会检查发送地址；有采样和队列port types 供其选择。  
+SAP 配置则更为松散。发送消息时，host port 与 消息的目的UDP/IP地址 不会关联（动态配置），故需要 host software 提供每一消息的目的UDP/IP地址。当然，在接收时，host software 需向 ES 查询发送UDP/IP地址。SAP ports 支持UDP/TCP/ICMP消息。   
+<a href="发送端口的类型" target="_blank"><img src="/home/jaousha/图片/com_port2.png"/></a>  
+
+对于接收而言，COM ports 可以为采样或队列ports，并且AFDX COM 和 SAP ports无区分。  
+
+采样ports：  
+1. 仅存在于接收  
+2. 仅提供给 host 最快到达的消息；当新消息到达采样ports且 ES 检查其合理性后，新来的消息会覆盖当前消息  
+3. 消息可以是原子的，这便允许多个 host software（同一 ES） 读取同一 采样ports 而互不影响  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port3.png"/></a>    
+解释：  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port4.png"/></a>  
+旁注：  
+采样ports 不支持 IP分片，因此消息的 有效载荷长度 限制在1471字节以内。若超出该限制，采样ports 则会发出 端口溢出信号；造成溢出现象的消息则不予接收。  
+
+队列ports：  
+1. 当消息到达且 ES 检查其合理性后，消息将会存放在队列（先入先出之缓存）的队尾  
+2. 读取消息将使其从队列中移除，故队列ports 不可被多个 host software（同一 ES）共享。  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port5.png"/></a>   
+旁注：  
+1. 队列ports 支持IP分片，其最大有效载荷长度可达8192字节；且消息的数目（数据的总量 = 有效载荷 X 数目）可以配置  
+2. 当消息超出最大的数据总量时，队列ports 会发出缓存溢出的信号；造成溢出现象的消息则不予接收  
+
+AFDX COM 和 SAP ports：  
+1. host software 接收 AFDX COM ports 消息：getAfdxMsg API  
+2. host software 接收 SAP ports 消息：getSapUdpMsg API  
+
+从 AFDX COM to host ，ES 接收的数据内容：  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port6.png"/></a>  
+从 SAP to host ，ES 接收的数据内容：  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port7_1.png"/></a>  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port7_2.png"/></a>  
+
+---
+
+[2] buffers：  
+
+<big>发送buffer 类型：</big>  
+1. 所有 ES消息 在发送时会 先入先出SubVL buffers内。SubVL buffers可以关联任意数量的 Tx COM ports（由 ES 在配置时决定）。  
+2. ES 每一发送VL 可以配置 最大4SubVL buffers。   
+
+（ES host software to）Tx SubVL buffers：属于队列buffers。数据源由 host software 提供。  
+1. first-come, first-serve basis（谁先来，谁先服务）, which means that buffer availability to an application may be affected by the usage of that SubVL buffer by other applications.（插队现象） For this reason, <big>sharing（共享） of SubVL buffers by applications needs to be carefully considered.</big>  
+2. SubVL buffers 内容是根据 VL 以某种顺序一分四（至多）得到的。因此，SubVL 带宽至少为 VL 的四分之一。  
+
+<big>buffering modes（接收）:  </big>
+1. ES 可配置为（ESBIN）两种modes: AFDX Compliant and AFDX Strict。  
+2. AFDX Strict：ES 需要处理 AFDX帧（with IP协议），并且仅仅 port buffers 和 VL buffers（仅允许缓存 IP载荷）可配置。  
+3. AFDX Compliant：ES 还需要处理除 AFDX帧外的 non-AFDX帧。AFDX帧（with UDP协议 into port buffers，with 其他协议可以（ESBIN配置） into VL buffers）；non-AFDX帧（配置为 ES buffer 用于接收）。  
+4. Another configurable parameter of End System reception buffering is the parameter which controls
+buffering of Transmission Control Protocol (TCP) frames. Frames encapsulated by the TCP header may
+be buffered into Port Buffers or VL Buffers. <big>It is suggested that End System configurations are
+written to only allow TCP buffering into VL buffers.</big>  
+   
+<big>ES 在接收时有三种buffers：</big>  
+1. port buffers  
+2. VL buffers  
+3. an ES buffer  
+4. 允许交叉使用三种buffers，最大数目为4096  
+
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port8.png"/></a>   
+The HNI line in the picture dictates the amount of header information that the host needs to control. For port buffers processing UDP frames, the End System will process the MAC, IP, and UDP headers. The End System will only process the IP header for other AFDX messages. Non-AFDX messages will only be queued by the End System, and will not be processed.  
+
+1)Rx port buffers（to ES host software）：  
+1. port buffers最为通用。  
+2. 目的寻址：当帧放入port buffers前，需要匹配（VL标识,IP目的地址,UDP目的端口号port number,port buffer对应的物理接口），否则便会被丢弃。   
+3. port buffers 可以配置 存放UDP/TCP消息。对于TCP消息来说，其头部header需要在buffer内检查有效。因为 ES host software 仅从TCP header中读取 目的端口号。从 UDP数据报 的内容中仅提取消息的 UDP载荷。  
+4. port buffers 可以配置 采样或队列功能（也可以配置为 接收IP分片的UDP数据报）。  
+5. In the case of EDE messages, the EDE Timestamp and EDE Sequence Number are available from the Packet Engine ASIC, and may be read by the host application.  
+  
+2)Rx VL buffers:  
+VL buffers 属于救火队员（情况：接收AFDX消息，Not port buffers）。这便意味着任何 non-UDP消息 都可能缓存在VL buffers。one VL buffer ～（配置） each VL服务；one VL buffer可以缓存某条特定VL的所有 non-UDP帧。当VLs支持EDE消息时，VL buffer可以无需配置。VL buffers仅仅允许队列功能，还有其他的限制包括：不允许IP分片；（配置）可以选择性过滤掉一类帧，接收/丢弃ICMP消息、TCP消息、以及其他的IP消息或non-IP消息。  
+  
+3)Rx ES buffers:  
+only：  
+1. ES buffers使用在AFDX Compliant mode下  
+2. 缓存non-AFDX帧  
+3. 属于队列buffer  
+4. 不允许IP分片  
+5. 需要处理的帧类型：整个MAC消息、no IP/UDP  
+6. ES buffers配置：过滤掉某些 基于MAC目的地址的消息（包括：单播、组播、广播）。   
+  
+<big>buffer大小：</big>  
+1. buffer内存分配是由 ESBIN配置程序设置的（基于特定的输入文件）。通过输入文件的参数，ESBIN 为每一个Tx/Rx buffer以及每一port 分配空间。  
+2. buffer字大小为64 Bit  
+3. 字对齐：不足64，补为64  
+  
+1)Tx buffers size:  
+1. 配置输入文件：SubVL项～<Buffer_Size>参数；通过设置<Buffer_Size>为8192，就可以给SubVL buffer分配8192字节的空间。  
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port9.png"/></a>  
+2. SubVL buffer存储 来自 host software 的消息数据，来自 驱动软件 扩展的消息头部（发送时的消息头部是16字节）。  
+3. 如果host software尝试向SubVL buffer （队列）存放消息并使SubVL buffer溢出，那么溢出的消息会被Packet Engine ASIC忽略，溢出标志将存储在 发送消息状态寄存器 中。  
+   
+2)Rx 队列buffers size:  
+In reception, queuing port buffers are sized indirectly by the configuration input file using the
+<Queue_Depth> and <Buffer_Size> parameters from <big>either the End System Buffer production, the Virtual Link buffer production, or the Rx COM Port buffer production.  </big>
+1. <Queue_Depth>:分配buffer空间-接收消息头部  
+2. <Buffer_Size>：分配buffer空间-接收消息数据  
+3. 在EDE消息中，其EDE参数作为消息数据的一部分（额外的12字节载荷）  
+
+1. ES 需要16字节的空间存储每一个消息头部。由于消息层的冗余管理，ES 需要给每一个物理接口分配<Buffer_Size>大小的空间。  
+If the <Queue_Depth> parameter is set to 4 messages and the <Buffer_Size> parameter is set to 8192 bytes, then ESBIN will allocate 16448 bytes ((8192 bytes x 2 interfaces) + (4 messages x 16 bytes)) of buffer memory to that queuing buffer.  
+2. buffer溢出的情况：超出消息头部和数据的分配空间（每一物理接口）。虽然存在一路冗余，但 当接收消息仅仅来自于一个接口且超出8192字节时，不能保证不会发生溢出；当接收消息来自于多个物理接口且超出8192字节时，可以保证不溢出  
+
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port10.png"/></a>  
+
+3）Rx 采样buffers size:  
+In reception, sampling port buffers are sized indirectly by the configuration input file using the
+<Buffer_Size> parameter of <big>the Receive COM Port buffer production.</big>    
+
+ESBIN分配的buffer空间：  
+1. 消息头部：48字节  
+2. 消息数据：6x<Buffer_Size>  
+3. 空间分配的原因：异步环境（host read buffer and Ethernet write data to the buffer）  
+4. If a configuration input file has a <Buffer_Size> parameter of 1000 bytes on a sampling port buffer, then ESBIN will allocate 6048 bytes ((1000 bytes x 6) + (3 headers x 16 bytes)) of buffer memory.  
+
+<a href="" target="_blank"><img src="/home/jaousha/图片/com_port11.png"/></a>  
+
+---
+
+[3] 发送消息接口/接收消息接口（属于驱动软件的一部分）  
+   
+接口位于 驱动软件 -- Packet Engine ASIC 之间，用以在CDN上传输应用数据（host software == host application）。驱动软件也实现了接口的多个可选特性。  
+   
+发送消息接口定义为：消息结构 和 传输消息至Packet Engine ASIC的过程（可类比接收消息接口）。  
+发送消息结构：  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
