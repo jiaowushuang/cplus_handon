@@ -1,0 +1,22 @@
+计算机视觉（OpenCV）
+
+---
+
+link1  
+
+数组：编程时的数据结构；
+矩阵：数学结构；   
+二者关系，矩阵由数组存储于内存中。   
+矩阵的特殊化（继承）是向量，就如多维数组和数组的关系一样。
+
+link2  
+
+<a href="" target="_blank"><img src="/home/jaousha/图片/link"/></a>  
+
+link3  
+
+<a href="" target="_blank"><img src="/home/jaousha/图片/link1"/></a>  
+
+link4  
+
+<a href="" target="_blank"><img src="/home/jaousha/图片/link2"/></a>  

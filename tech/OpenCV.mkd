@@ -1,0 +1,155 @@
+学习OpenCV3 重新翻译解读（3~5）结合数据结构代码
+
+---
+
+第三章 了解OpenCV的数据类型  
+
+
+---
+
+第四章 图像和大型数组类型 cv::Mat/cv::SparesMat   
+
+1. 数组：一般的cv::Mat对象   
+2. 矩阵：数学对象   
+
+（1）动态可变的存储 典例cv::Mat  
+
+cv::Mat类型用于表示任意维度的稠密数组（存储任意值）；cv::SparesMat（只存储非0值）；二者在适当情况下的使用会节省一定的内存。一个常用在稀疏数组的例子是：统计直方图大部分直方图的大部分数值为0.  
+
+1. cv::Mat类型的成员函数和友元函数  
+2. cv::Mat作为参数和返回值类型  
+
+（2）cv::Mat类：N维稠密数组  
+
+存储在cv::Mat内的数据可以认为是：以栅格扫描顺序（从上至下，从左到右）的N维量。这意味着：在一维数组中，数据由多个元素顺序存储的；在二维数组中，数据以行（rows）组织，每一行内的多个元素以顺序存储的；在三维数组中，数据以平面（planes）组织，每平面（plane）再由多个行顺序存储，接着每一行内多个元素以顺序存储。这里的“组织”：顺序存储。  
+
+cv::Mat类包括：  
+
+1. flags项：数组类型  
+2. dims项： 维度  
+3. rows/cols项：行数和列数（dims>2，该项不存在） 
+4. data指针项：数组内数据的存储位置   
+5. data-refcount引用计数器：参照cv::Ptr<>引用计数器（允许cv::Mat对data内包含的数据 执行 智能指针的功能，创建和销毁）    
+6. data-step[]一维数组项：属于data的内存层次结构。也就是说，data指针指向的内存地址处的数据是以step[]数组“组织”的。并且，step[i]（i=[0~d-1]）数组被 一一对应于地址项(i0, ii, … , iN d −1)，如下图所示。   
+<a href="" target="_blank"><img src="/home/jaousha/图片/q1"/></a>  
+旁注：  
+&:矩阵引用；mtx：矩阵；i0, ii, … , iN d −1：矩阵的每一维度；mtx.data：矩阵指针；mtx.step[0]*i0：第0维对应的step[0]数组，其他类似  
+<a href="" target="_blank"><img src="/home/jaousha/图片/q2"/></a>  
+
+cv::Mat包含的数据可以是基元，也可以是组合结构。每一数据项本身可以是单个数字，也可以是多个数字（也称为多通道数组）。
+实际上，N维单通道数组类似于N-1维多通道数组；在很多情况下，常将cv::Mat（多通道）视为将向量作为值的数组，而该向量可以补充1维。二者的区别是数据对齐的方式不同。   
+
+（3）数组创建  
+
+一般使用构造函数进行创建并初始化一个数组。   
+
+引用理论：数组中的数据并不是严格附属于cv::Mat对象。cv::Mat对象（头部）仅仅是数据域的标识，二者是完全不同的。例如，头部的具体表现为：将矩阵n赋予矩阵m（m=n），此时m内的data指针将会改变为n的，m内data指针所指向的数据将会销毁且成员变量（rows,cols,flags .etc）更新为n的。同时，m/n的共享data-refcount引用计数器将会增加1。  
+
+1. 常规构造函数：二维（rows,clos）=sz<维度值>,type<类型>,Scalar<初始化数值向量>,data+step<内存数据:不会复制，而是将参数data赋予cv::Mat成员data> 和多维 ndims<维度数目>,sizes<维度值>,type<类型>,Scalar<初始化数值向量>,data+step<内存数据>  
+2. 复制构造函数:从一个数组创建另一个数组。二维（mat<一个数组>,rows<行序列：一个数组的子集>,cols<列序列：一个数组的子集>,roi<感兴趣区域，属于Rect类型，表示一个矩形>） 和 多维（mat<一个数组>,ranges<维度序列的数组>）和 一个矩阵表达式<expr>  
+3. 从OPENCV2.1之前的数据类型构造cv::Mat的函数（或反之），可选项copyData能够指定数据是复制，还是引用。  
+4. 模板构造函数：cv::Mat构造函数的参数是模板类型。例如，可以使用cv::Vec<>类（一维）或cv::Matx<>类（二维）来存储维度值和类型，或是使用STL vector<>（一维）。可选项copyData能够指定数据是复制，还是引用。  
+5. 静态方法：zeros(),ones(),eye()创建全0，全1，单位矩阵（二维：rows,cols,type）   
+
+（4）数组访问  
+
+一般在访问数组时，对于不同类型的数组的访问是很方便的。但是一种趋势是，不考虑类型，而是将其同等对待（访问方式更为泛化，不局限于某种类型）。可以按照 单个元素、块、数组的子集 为单元来访问数组。  
+
+一、对单个元素的访问   
+
+1. 索引位置：模板成员函数at<type>()；按照维度的不同，访问数组的参数也不同。工作方式是：使用矩阵包含的数据的类型来例化at<>()模板，使用row和col来作为访问数据的索引位置。对于多通道而言，例子如下：10x10的二维数组，类型为32FC2，其中一个元素可以表示为at<cv::Vec2f>(3,3)[0/1]；由于可以视2通道为2元素的向量，所以使用Vec2f（或是typedef别名或STL模板）；至于增加[]用于表示每一通道的元素。对于复数而言，形式应该转变为at<>().re/at<>().im。对于二维数组而言，还有更为效率的访问方式：cv::Mat::ptr<type>(行索引)模板成员函数，以数组的行为访问索引；如果想通过每次迭代一行来遍历整个数组，则需要注意数组是否是连续的，通过isContinuous()判断。如果是连续的，则可以通过获取第一行的第一个元素的指针，来遍历整个数组（近似与一维数组）。  
+同上，一个例子：   
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q3"/></a></center>     
+
+2. cv::Mat內建的迭代器机制：以序列形式进行访问。OPENCV提供一对迭代器模板，适用于const（<big>cv::MatIterator<></big>）和non-const数组（<big>cv::MatConstIterator<></big>）。cv:Mat內建方法begin()/end()返回上述类型迭代器的对象。由于可以智能的处理连续和非连续的情况以及适用与任意维度的数组，所以迭代器这种方法时非常便利的。   
+同上，一个例子：   
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q4"/></a></center>     
+
+
+旁注：  
+
+1. 有两种方法来获取数组中数据的指针，一个是使用ptr<>()成员函数，另一个是使用成员指针data以及使用成员一维数组step[]来计算地址。其中，at<>(),ptr<>()更为普遍，但是data+step[]更为高效（尤其是多维数组）。       
+2. 性能对比：at<>()直接访问、指针直接访问、以及迭代器间接访问。at<>()与指针直接访问的差别在于编译器的优化程度（仅仅针对于at<>()），at<>()（良好的代码优化器）比指针直接访问稍慢一些，但是在关闭优化器后（debug）性能会损失一个数量级以上；迭代器访问比上述二者都慢。在几乎所有的情况下，使用內建的OPENCV函数比上述直接访问方法的循环更快（尽可能的避免这种结构）
+
+二、对块（plane）的访问
+
+存在另一种迭代器形式（N-ary数组迭代器），它不像cv::MatIterator<>那样可以将数组打包来处理不连续的情况，但是它可以一次迭代处理多个数组。该迭代称为 cv::NAryMatIterator，仅仅需要满足 所有的迭代数组是一致的几何结构（维度，以及维度值---3维3x3x3）。   
+
+该迭代器不会返回数组的单个元素，N-ary迭代器操作 这些数组的多个块（planes）。一个plane是单个输入数组的部分（典型是一维或二维的片段；或是更大的连续内存），并且该部分的数据在内存中是连续的；你可以对其使用数组操作，也可以对其迭代（不需要isContinuous()判断）。最后，当处理这些不连续的数组时，你可以将其分成连续的块（planes）。   
+
+plane内的数据完全是从被迭代的多个数组数据中分离出来的。举个例子：    
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q5"/></a></center>     
+
+为了初始化一个cv::NAryMatIterator对象，需要两件事：
+
+1. C-style数组（包含所有的需要迭代多个cv::Mat数组s的地址值&，上述例子中就一个cv::Mat数组；且C-style数组以0/NULL末尾）
+2. C-style数组（包含cv::Mat类型的需要迭代的多个planes，上述例子中一个plane） 
+
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q"/></a></center>     
+
+When it is time to iterate over the planes, at each step, planes[0] contains a plane in n_mat0, and planes[1] contains the corresponding plane in n_mat1.   
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q6"/></a></center>     
+
+we could use element-wise addition to sum these two planes and place the result into the corresponding plane in a third array.   
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q7"/></a></center>     
+
+三、对数组子集的访问并生成新的数组  
+
+一般来说，可以选择行、列或任意原始数组的子集。所有的操作都是cv::Mat的成员函数，以及返回数组的子集。当生成新数组时，使用赋予操作（=）请参见引用理论，记住不会发生复制，仅仅是cv::Mat成员变量发生一定的改变而已。      
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q9"/></a></center>     
+
+（5）矩阵表达式：cv::Mat的代数
+
+运算符重载：+ - * / 等：支持创建包含单个矩阵（矩阵序列）的矩阵表达式。   
+
+旁注：  
+
+1. 数组头部会自动按需创建   
+2. 数据域仅仅在请求时才会分配   
+3. 当不再需要时，数据域会自动释放掉  
+4. 临时计算结果最终会放置在（通过运算符operator=()）目的数组中  
+     
+operator=()并不是从cv::Mat->cv::Mat，而是cv::MatExpr->cv::Mat。二者的区别在于：（后者）右边数据总是复制在左边目的数组中。回顾：m2=m1，虽然合法（cv::Mat->cv::Mat）但是与上述的结论有出入（m2总是m1的一个引用）；不过，m2=m1+m0，由于右边是数组表达式（cv::MatExpr->cv::Mat），所以不仅赋值、计算结果的指针赋予m2，还会分配一个数据域。   
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q10"/></a></center>    
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q11"/></a></center>    
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q12"/></a></center>    
+
+（6）饱和转换  
+
+目的：防止溢出（上溢/下溢）的风险。不仅仅在处理无符号数据时，而是在任何时候都需要注意这一点。   
+
+（7）遗留成员函数  
+
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q13"/></a></center>    
+<center><a href="" target="_blank"><img src="/home/jaousha/图片/q14"/></a></center>    
+
+（8）其他待定详解
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
